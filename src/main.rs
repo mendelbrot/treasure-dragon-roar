@@ -31,7 +31,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .init_resource::<Game>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (move_dragon, pick_up_treasure))
+        .add_systems(Update, (move_dragon, pick_up_treasure, roar))
         .run();
 }
 
@@ -64,17 +64,30 @@ struct Game {
     landscape: Landscape,
 }
 
+#[derive(Resource)]
+struct GrabSound(Handle<AudioSource>);
+
+#[derive(Resource)]
+struct DropSound(Handle<AudioSource>);
+
+#[derive(Resource)]
+struct RoarSound(Handle<AudioSource>);
+
 fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResMut<Game>) {
     _commands.spawn(Camera2dBundle::default());
 
     _commands.spawn(AudioBundle {
-        source: asset_server.load("sounds/windless_slopes.ogg"),
+        source: asset_server.load("sounds/windless-slopes.ogg"),
         settings: PlaybackSettings {
             mode: Loop,
             ..default()
         },
         ..default()
     });
+
+    _commands.insert_resource(GrabSound(asset_server.load("sounds/mechanical-bling.ogg")));
+    _commands.insert_resource(DropSound(asset_server.load("sounds/neutral-bot-pinball-tone.ogg")));
+    _commands.insert_resource(RoarSound(asset_server.load("sounds/angry-dragon-roar-echo.ogg")));
 
     game.dragon.position = DRAGON_START_POSITION;
     game.dragon.size = DRAGON_SIZE;
@@ -87,7 +100,7 @@ fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResM
     game.landscape.entity = Some(
         _commands
             .spawn(SpriteBundle {
-                texture: asset_server.load("backgrounds/tall_landscape.png"),
+                texture: asset_server.load("backgrounds/tall-landscape.png"),
                 transform: Transform::from_xyz(
                     -game.dragon.position.x,
                     -game.dragon.position.y,
@@ -101,7 +114,7 @@ fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResM
     game.treasure.entity = Some(
         _commands
             .spawn(SpriteBundle {
-                texture: asset_server.load("objects2d/treasure_chest.png"),
+                texture: asset_server.load("objects2d/treasure-chest.png"),
                 transform: Transform::from_xyz(
                     game.treasure.position.x - game.dragon.position.x,
                     game.treasure.position.y - game.dragon.position.y,
@@ -163,7 +176,7 @@ fn move_dragon(
     }
 
     let next_position = game.dragon.position.add(position_delta);
-    
+
     if position_delta != Vec3::ZERO
         && next_position.x <= BOUNDARY_X
         && next_position.x >= -BOUNDARY_X
@@ -190,11 +203,18 @@ fn move_dragon(
     }
 }
 
-fn pick_up_treasure(keyboard_input: Res<Input<KeyCode>>, mut game: ResMut<Game>) {
+fn pick_up_treasure(
+    mut _commands: Commands,
+    grab_sound: Res<GrabSound>,
+    drop_sound: Res<DropSound>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut game: ResMut<Game>,
+) {
     if keyboard_input.just_pressed(KeyCode::Return) {
         game.treasure.moves_with = match game.treasure.moves_with {
             None => {
                 let mut entity_to_move_with = None;
+
                 if game
                     .dragon
                     .position
@@ -202,11 +222,37 @@ fn pick_up_treasure(keyboard_input: Res<Input<KeyCode>>, mut game: ResMut<Game>)
                     .distance(game.treasure.position.xy())
                     <= game.dragon.reach
                 {
+                    _commands.spawn(AudioBundle {
+                        source: grab_sound.0.clone(),
+                        settings: PlaybackSettings::DESPAWN,
+                    });
+
                     entity_to_move_with = game.dragon.entity
                 }
+
                 entity_to_move_with
             }
-            Some(_entity) => None,
+            Some(_entity) => {
+                _commands.spawn(AudioBundle {
+                    source: drop_sound.0.clone(),
+                    settings: PlaybackSettings::DESPAWN,
+                });
+                None
+            },
         };
+    }
+}
+
+fn roar(
+    mut _commands: Commands,
+    sound: Res<RoarSound>,
+    keyboard_input: Res<Input<KeyCode>>,
+    // mut game: ResMut<Game>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        _commands.spawn(AudioBundle {
+            source: sound.0.clone(),
+            settings: PlaybackSettings::DESPAWN,
+        });
     }
 }
