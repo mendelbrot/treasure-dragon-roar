@@ -1,5 +1,4 @@
 use std::ops::Add;
-use std::ops::Mul;
 
 use bevy::audio::PlaybackMode::Loop;
 use bevy::prelude::*;
@@ -9,7 +8,6 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .init_resource::<Game>()
         .add_systems(Startup, setup)
-        .add_systems(Update, gizmo_shapes)
         .add_systems(Update, move_dragon)
         .run();
 }
@@ -17,22 +15,29 @@ fn main() {
 #[derive(Default)]
 struct Dragon {
     entity: Option<Entity>,
-    position_unscaled: Vec3,
+    position: Vec3,
     move_cooldown: Timer,
+}
+#[derive(Default)]
+struct Map {
+    entity: Option<Entity>,
 }
 
 #[derive(Resource, Default)]
 struct Game {
     dragon: Dragon,
+    map: Map,
 }
 
-const MAP_RADIUS: f32 = 30.;
-const MAP_SCALE: f32 = 15.;
+const MAP_RADIUS_X: f32 = 720.;
+const MAP_RADIUS_Y: f32 = 1520.;
 
-const COOL_DOWN: f32 = 0.1;
+const MOVE_STEP: f32 = 15.;
+const MOVE_COOL_DOWN: f32 = 0.1;
 
 fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResMut<Game>) {
     _commands.spawn(Camera2dBundle::default());
+
     _commands.spawn(AudioBundle {
         source: asset_server.load("sounds/windless_slopes.ogg"),
         settings: PlaybackSettings {
@@ -42,20 +47,27 @@ fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResM
         ..default()
     });
 
-    // spawn the dragon
-    game.dragon.position_unscaled = Vec3 {
+    game.dragon.position = Vec3 {
         x: 0.,
         y: 0.,
-        z: 0.,
+        z: 1.,
     };
-    game.dragon.move_cooldown = Timer::from_seconds(COOL_DOWN, TimerMode::Once);
+    game.dragon.move_cooldown = Timer::from_seconds(MOVE_COOL_DOWN, TimerMode::Once);
+
+    game.map.entity = Some(
+        _commands
+            .spawn(SpriteBundle {
+                texture: asset_server.load("backgrounds/tall_landscape.png"),
+                ..default()
+            })
+            .id(),
+    );
+
     game.dragon.entity = Some(
         _commands
             .spawn(SpriteBundle {
                 texture: asset_server.load("objects2d/dragon1_md.png"),
-                transform: Transform::from_translation(
-                    game.dragon.position_unscaled.mul(MAP_SCALE),
-                ),
+                transform: Transform::from_xyz(0., 0., 1.),
                 ..default()
             })
             .id(),
@@ -63,7 +75,6 @@ fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResM
 }
 
 fn move_dragon(
-    mut commands: Commands,
     keyboard_input: Res<Input<KeyCode>>,
     mut game: ResMut<Game>,
     mut transforms: Query<&mut Transform>,
@@ -71,49 +82,49 @@ fn move_dragon(
 ) {
     if game.dragon.move_cooldown.tick(time.delta()).finished() {
         let mut moved = false;
-        let mut next_position_unscaled = game.dragon.position_unscaled;
+        let mut next_position;
 
         if keyboard_input.pressed(KeyCode::Up) {
-            next_position_unscaled = game.dragon.position_unscaled.add(Vec3 {
+            next_position = game.dragon.position.add(Vec3 {
                 x: 0.,
-                y: 1.,
+                y: MOVE_STEP,
                 z: 0.,
             });
-            if next_position_unscaled.distance(Vec3::ZERO) <= MAP_RADIUS {
-                game.dragon.position_unscaled = next_position_unscaled
+            if next_position.y <= MAP_RADIUS_Y {
+                game.dragon.position = next_position
             }
             moved = true;
         }
         if keyboard_input.pressed(KeyCode::Down) {
-            next_position_unscaled = game.dragon.position_unscaled.add(Vec3 {
+            next_position = game.dragon.position.add(Vec3 {
                 x: 0.,
-                y: -1.,
+                y: -MOVE_STEP,
                 z: 0.,
             });
-            if next_position_unscaled.distance(Vec3::ZERO) <= MAP_RADIUS {
-                game.dragon.position_unscaled = next_position_unscaled
+            if next_position.y >= -MAP_RADIUS_Y {
+                game.dragon.position = next_position
             }
             moved = true;
         }
         if keyboard_input.pressed(KeyCode::Right) {
-            next_position_unscaled = game.dragon.position_unscaled.add(Vec3 {
-                x: 1.,
+            next_position = game.dragon.position.add(Vec3 {
+                x: MOVE_STEP,
                 y: 0.,
                 z: 0.,
             });
-            if next_position_unscaled.distance(Vec3::ZERO) <= MAP_RADIUS {
-                game.dragon.position_unscaled = next_position_unscaled
+            if next_position.x <= MAP_RADIUS_X {
+                game.dragon.position = next_position
             }
             moved = true;
         }
         if keyboard_input.pressed(KeyCode::Left) {
-            next_position_unscaled = game.dragon.position_unscaled.add(Vec3 {
-                x: -1.,
+            next_position = game.dragon.position.add(Vec3 {
+                x: -MOVE_STEP,
                 y: 0.,
                 z: 0.,
             });
-            if next_position_unscaled.distance(Vec3::ZERO) <= MAP_RADIUS {
-                game.dragon.position_unscaled = next_position_unscaled
+            if next_position.x >= -MAP_RADIUS_X {
+                game.dragon.position = next_position
             }
             moved = true;
         }
@@ -121,14 +132,8 @@ fn move_dragon(
         // move on the board
         if moved {
             game.dragon.move_cooldown.reset();
-            *transforms.get_mut(game.dragon.entity.unwrap()).unwrap() =
-                Transform::from_translation(game.dragon.position_unscaled.mul(MAP_SCALE))
+            *transforms.get_mut(game.map.entity.unwrap()).unwrap() =
+                Transform::from_xyz(-game.dragon.position.x, -game.dragon.position.y, 0.)
         }
     }
-}
-
-fn gizmo_shapes(mut gizmos: Gizmos) {
-    // debug shapes
-    gizmos.circle_2d(Vec2::ZERO, (MAP_RADIUS * MAP_SCALE) as f32, Color::BLUE);
-    gizmos.circle_2d(Vec2::ZERO, 5., Color::GREEN);
 }
