@@ -3,6 +3,7 @@ use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
 use std::ops::Add;
+use bevy::sprite::MaterialMesh2dBundle;
 
 const BOUNDARY_X: f32 = 720.;
 const BOUNDARY_Y: f32 = 1520.;
@@ -286,6 +287,8 @@ fn roar(
     mut game: ResMut<Game>,
     time: Res<Time>,
     asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
         _commands.spawn(AudioBundle {
@@ -298,10 +301,21 @@ fn roar(
 
         game.dragon.roar_ball = Some(
             _commands
-                .spawn(SpriteBundle {
-                    texture: asset_server.load("objects2d/blue-energy-ball.png"),
-                    transform: Transform::from_xyz(0., 0., 1.5),
+                .spawn(MaterialMesh2dBundle {
+                    mesh: meshes.add(shape::Circle::new(10000.).into()).into(),
+                    material: materials.add(ColorMaterial::from(Color::rgba(0.0, 0.0, 0.0, 0.5))),
+                    transform: Transform::from_translation(Vec3::new(0., 0., 1.5)),
                     ..default()
+                })
+                .with_children(|parent| {
+                    parent.spawn(SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::rgba(1., 0.8, 0.8, 0.5),
+                            ..default()
+                        },
+                        texture: asset_server.load("objects2d/blue-energy-ball.png"),
+                        ..default()
+                    });
                 })
                 .id(),
         );
@@ -318,7 +332,7 @@ fn roar(
         if game.dragon.roar.tick(time.delta()).finished() {
             game.dragon.is_roaring = false;
 
-            _commands.entity(game.dragon.roar_ball.unwrap()).despawn();
+            _commands.entity(game.dragon.roar_ball.unwrap()).despawn_recursive();
 
             *transforms.get_mut(game.dragon.entity.unwrap()).unwrap() =
                 Transform::from_xyz(0., 0., DRAGON_START_POSITION.z)
