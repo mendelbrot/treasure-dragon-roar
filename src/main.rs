@@ -1,4 +1,5 @@
 use bevy::audio::PlaybackMode::Loop;
+use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
 use std::ops::Add;
@@ -13,6 +14,8 @@ const DRAGON_SIZE: f32 = 50.;
 const TREASURE_SIZE: f32 = 30.;
 
 const DRAGON_REACH: f32 = 100.;
+
+const ROAR_TIME: f32 = 3.;
 
 const DRAGON_START_POSITION: Vec3 = Vec3 {
     x: 0.,
@@ -42,6 +45,9 @@ struct Dragon {
     size: f32,
     reach: f32,
     move_cooldown: Timer,
+    is_roaring: bool,
+    roar: Timer,
+    roar_ball: Option<Entity>,
 }
 
 #[derive(Default)]
@@ -74,7 +80,13 @@ struct DropSound(Handle<AudioSource>);
 struct RoarSound(Handle<AudioSource>);
 
 fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResMut<Game>) {
-    _commands.spawn(Camera2dBundle::default());
+    _commands.spawn(Camera2dBundle {
+        camera_2d: Camera2d {
+            clear_color: ClearColorConfig::Custom(Color::rgb(0.4902, 0.82745, 0.98824)),
+            ..default()
+        },
+        ..default()
+    });
 
     _commands.spawn(AudioBundle {
         source: asset_server.load("sounds/windless-slopes.ogg"),
@@ -86,13 +98,19 @@ fn setup(mut _commands: Commands, asset_server: Res<AssetServer>, mut game: ResM
     });
 
     _commands.insert_resource(GrabSound(asset_server.load("sounds/mechanical-bling.ogg")));
-    _commands.insert_resource(DropSound(asset_server.load("sounds/neutral-bot-pinball-tone.ogg")));
-    _commands.insert_resource(RoarSound(asset_server.load("sounds/angry-dragon-roar-echo.ogg")));
+    _commands.insert_resource(DropSound(
+        asset_server.load("sounds/neutral-bot-pinball-tone.ogg"),
+    ));
+    _commands.insert_resource(RoarSound(
+        asset_server.load("sounds/angry-dragon-roar-echo.ogg"),
+    ));
 
     game.dragon.position = DRAGON_START_POSITION;
     game.dragon.size = DRAGON_SIZE;
     game.dragon.reach = DRAGON_REACH;
     game.dragon.move_cooldown = Timer::from_seconds(MOVE_COOL_DOWN, TimerMode::Once);
+    game.dragon.is_roaring = false;
+    game.dragon.roar = Timer::from_seconds(ROAR_TIME, TimerMode::Once);
 
     game.treasure.position = TREASURE_START_POSITION;
     game.treasure.size = TREASURE_SIZE;
@@ -208,6 +226,7 @@ fn pick_up_treasure(
     grab_sound: Res<GrabSound>,
     drop_sound: Res<DropSound>,
     keyboard_input: Res<Input<KeyCode>>,
+    mut transforms: Query<&mut Transform>,
     mut game: ResMut<Game>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Return) {
@@ -227,7 +246,15 @@ fn pick_up_treasure(
                         settings: PlaybackSettings::DESPAWN,
                     });
 
-                    entity_to_move_with = game.dragon.entity
+                    entity_to_move_with = game.dragon.entity;
+
+                    game.treasure.position.z = 3.;
+                    *transforms.get_mut(game.treasure.entity.unwrap()).unwrap() =
+                        Transform::from_xyz(
+                            game.treasure.position.x - game.dragon.position.x,
+                            game.treasure.position.y - game.dragon.position.y,
+                            game.treasure.position.z,
+                        );
                 }
 
                 entity_to_move_with
@@ -237,8 +264,16 @@ fn pick_up_treasure(
                     source: drop_sound.0.clone(),
                     settings: PlaybackSettings::DESPAWN,
                 });
+
+                game.treasure.position.z = 1.;
+                *transforms.get_mut(game.treasure.entity.unwrap()).unwrap() = Transform::from_xyz(
+                    game.treasure.position.x - game.dragon.position.x,
+                    game.treasure.position.y - game.dragon.position.y,
+                    game.treasure.position.z,
+                );
+
                 None
-            },
+            }
         };
     }
 }
@@ -247,12 +282,46 @@ fn roar(
     mut _commands: Commands,
     sound: Res<RoarSound>,
     keyboard_input: Res<Input<KeyCode>>,
-    // mut game: ResMut<Game>,
+    mut transforms: Query<&mut Transform>,
+    mut game: ResMut<Game>,
+    time: Res<Time>,
+    asset_server: Res<AssetServer>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
         _commands.spawn(AudioBundle {
             source: sound.0.clone(),
             settings: PlaybackSettings::DESPAWN,
         });
+
+        game.dragon.is_roaring = true;
+        game.dragon.roar.reset();
+
+        game.dragon.roar_ball = Some(
+            _commands
+                .spawn(SpriteBundle {
+                    texture: asset_server.load("objects2d/blue-energy-ball.png"),
+                    transform: Transform::from_xyz(0., 0., 1.5),
+                    ..default()
+                })
+                .id(),
+        );
+
+        *transforms.get_mut(game.dragon.entity.unwrap()).unwrap() =
+            Transform::from_xyz(0., 0., DRAGON_START_POSITION.z).with_scale(Vec3 {
+                x: 2.,
+                y: 2.,
+                z: 0.,
+            });
+    }
+
+    if game.dragon.is_roaring {
+        if game.dragon.roar.tick(time.delta()).finished() {
+            game.dragon.is_roaring = false;
+
+            _commands.entity(game.dragon.roar_ball.unwrap()).despawn();
+
+            *transforms.get_mut(game.dragon.entity.unwrap()).unwrap() =
+                Transform::from_xyz(0., 0., DRAGON_START_POSITION.z)
+        }
     }
 }
